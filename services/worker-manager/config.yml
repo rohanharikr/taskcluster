@@ -43,3 +43,5 @@ test:
       providerType: static
     google:
       providerType: google
+    aws:
+      providerType: aws
