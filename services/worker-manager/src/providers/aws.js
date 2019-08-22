@@ -19,6 +19,7 @@ class AwsProvider extends Provider {
     validator,
     notify,
     providerConfig,
+    fakeCloudApis,
   }) {
     super({
       providerId,
@@ -32,13 +33,13 @@ class AwsProvider extends Provider {
       notify,
     });
     this.configSchema = 'config-aws';
-    this.ec2iid_RSA_key = fs.readFileSync(path.resolve(__dirname, 'aws-keys/RSA-key-forSignature')).toString();
+    this.aws = (fakeCloudApis && fakeCloudApis.aws) ? fakeCloudApis.aws : aws;
+    this.ec2iid_RSA_key = (fakeCloudApis && fakeCloudApis.aws)
+      ? fakeCloudApis.aws.getPubkey()
+      : fs.readFileSync(path.resolve(__dirname, 'aws-keys/RSA-key-forSignature')).toString();
     this.providerConfig = providerConfig;
   }
 
-  /*
-   This method is used to setup permissions for the EC2 instances
-   */
   async setup() {
   }
 
@@ -54,9 +55,9 @@ class AwsProvider extends Provider {
 
     const config = this.chooseConfig({possibleConfigs: workerPool.config.launchConfigs});
 
-    aws.config.update({region: config.region});
-    aws.config.logger = console;
-    const ec2 = new aws.EC2({
+    this.aws.config.update({region: config.region});
+    this.aws.config.logger = console;
+    const ec2 = new this.aws.EC2({
       apiVersion: AWS_API_VERSION,
       credentials: this.providerConfig.credentials,
     });
@@ -126,7 +127,7 @@ class AwsProvider extends Provider {
         providerData: {
           region: config.region,
           groups: spawned.Groups,
-          amiLaunchIndexes: spawned.Instances.map(i => i.AmiLaunchIndex),
+          amiLaunchIndex: i.AmiLaunchIndex,
           imageId: i.ImageId,
           instanceType: i.InstanceType,
           architecture: i.Architecture,
@@ -173,8 +174,8 @@ class AwsProvider extends Provider {
   async checkWorker({worker}) {
     this.seen[worker.workerPoolId] = this.seen[worker.workerPoolId] || 0;
 
-    aws.config.update({region: worker.providerData.region});
-    const ec2 = new aws.EC2({
+    this.aws.config.update({region: worker.providerData.region});
+    const ec2 = new this.aws.EC2({
       apiVersion: AWS_API_VERSION,
       credentials: this.providerConfig.credentials,
     });

@@ -782,11 +782,151 @@ helper.secrets.mockSuite(testing.suiteName(), ['taskcluster', 'azure'], function
 
   suite('registerWorker', function() {
     const workerPoolId = 'ff/ee';
-    const providerId = 'testing1';
+    const testingProviderId = 'testing1';
     const workerGroup = 'wg';
     const workerId = 'wi';
-    const workerIdentityProof = {'token': 'tok'};
-    const aws_workerIdentityProof = {
+    const googleWorkerIdentityProof = {'token': 'tok'};
+
+    const googleRegisterWorker = {
+      workerPoolId, testingProviderId, workerGroup, workerId, googleWorkerIdentityProof,
+    };
+
+    const defaultWorkerPool = {
+      workerPoolId,
+      testingProviderId,
+      previousProviderIds: [],
+      description: 'bar',
+      created: taskcluster.fromNow('0 seconds'),
+      lastModified: taskcluster.fromNow('0 seconds'),
+      config: {},
+      owner: 'example@example.com',
+      emailOnError: false,
+      providerData: {},
+    };
+
+    const defaultWorker = {
+      workerPoolId,
+      workerGroup,
+      workerId,
+      testingProviderId,
+      created: taskcluster.fromNow('0 seconds'),
+      expires: taskcluster.fromNow('90 seconds'),
+      state: 'requested',
+      providerData: {},
+    };
+
+    test('no such workerPool)', async function() {
+      await assert.rejects(() => helper.workerManager.registerWorker({
+        ...googleRegisterWorker,
+        workerPoolId: 'no/such',
+      }), /Worker pool no\/such does not exist/);
+    });
+
+    test('no such provider', async function() {
+      const providerId = 'no-such';
+      await helper.WorkerPool.create({
+        ...defaultWorkerPool,
+        providerId,
+      });
+      await assert.rejects(() => helper.workerManager.registerWorker({
+        ...googleRegisterWorker,
+        providerId,
+      }), /Provider no-such does not exist/);
+    });
+
+    test('provider not associated', async function() {
+      await helper.WorkerPool.create({
+        ...defaultWorkerPool,
+        providerId: 'testing2',
+      });
+      await assert.rejects(() => helper.workerManager.registerWorker({
+        ...googleRegisterWorker,
+        providerId: 'testing1',
+      }), /Worker pool ff\/ee not associated with provider testing1/);
+    });
+
+    test('no such worker', async function() {
+      await helper.WorkerPool.create({
+        ...defaultWorkerPool,
+      });
+      await assert.rejects(() => helper.workerManager.registerWorker({
+        ...googleRegisterWorker,
+      }), /Worker wg\/wi in worker pool ff\/ee does not exist/);
+    });
+
+    test('worker does not have providerId', async function() {
+      await helper.WorkerPool.create({
+        ...defaultWorkerPool,
+      });
+      await helper.Worker.create({
+        ...defaultWorker,
+        providerId: 'testing2',
+      });
+      await assert.rejects(() => helper.workerManager.registerWorker({
+        ...googleRegisterWorker,
+      }), /Worker wg\/wi does not have provider testing1/);
+    });
+
+    test('error from provider.registerWorker', async function() {
+      await helper.WorkerPool.create({
+        ...defaultWorkerPool,
+      });
+      await helper.Worker.create({
+        ...defaultWorker,
+        providerData: {failRegister: 'uhoh'},
+      });
+      await assert.rejects(() => helper.workerManager.registerWorker({
+        ...googleRegisterWorker,
+      }), /uhoh/);
+    });
+
+    test('sweet success', async function() {
+      await helper.WorkerPool.create({
+        ...defaultWorkerPool,
+      });
+      await helper.Worker.create({
+        ...defaultWorker,
+      });
+      const res = await helper.workerManager.registerWorker({
+        ...googleRegisterWorker,
+      });
+
+      assert.equal(res.credentials.clientId,
+        `worker/${testingProviderId}/${workerPoolId}/${workerGroup}/${workerId}`);
+
+      // cheat a little and look in the certificate to check the scopes
+      const scopes = new Set(JSON.parse(res.credentials.certificate).scopes);
+      const msg = `got scopes ${[...scopes].join(', ')}`;
+      assert(scopes.has(`assume:worker-pool:${workerPoolId}`), msg);
+      assert(scopes.has(`assume:worker-id:${workerGroup}/${workerId}`), msg);
+      assert(scopes.has(`secrets:get:worker-pool:${workerPoolId}`), msg);
+      assert(scopes.has(`queue:claim-work:${workerPoolId}`), msg);
+    });
+
+    test('sweet success for a previous providerId', async function() {
+      await helper.WorkerPool.create({
+        ...defaultWorkerPool,
+        providerId: 'testing2',
+        previousProviderIds: ['testing1'],
+      });
+      await helper.Worker.create({
+        ...defaultWorker,
+      });
+      const res = await helper.workerManager.registerWorker({
+        ...googleRegisterWorker,
+      });
+
+      assert.equal(res.credentials.clientId,
+        `worker/${testingProviderId}/${workerPoolId}/${workerGroup}/${workerId}`);
+    });
+  });
+
+  suite('registerWorker, aws provider', function() {
+    const workerPoolId = 'ff/ee';
+    const providerId = 'aws';
+    const workerGroup = 'wg';
+    const workerId = 'i-02312cd4f06c990ca';
+    const workerIdentityProof = {
       "document": '{\n  "accountId" : "710952102342",\n  "availabilityZone" : "us-west-2a",\n  "ramdiskId" : null,\n  "kernelId" : null,\n  "pendingTime" : "2019-08-15T18:19:47Z",\n  "architecture" : "x86_64",\n  "privateIp" : "172.31.23.159",\n  "devpayProductCodes" : null,\n  "marketplaceProductCodes" : null,\n  "version" : "2017-09-30",\n  "region" : "us-west-2",\n  "imageId" : "ami-082b5a644766e0e6f",\n  "billingProducts" : null,\n  "instanceId" : "i-02312cd4f06c990ca",\n  "instanceType" : "t2.micro"\n}',
       "signature": "gCB6UdLEc8np0UsBtT2OfRRvi7BW0qQ9nz/hAD4puflRu6PZBkgCGdYFWN5CVbg+c4VgjnNDiMjT\nk0qFGoV18sMJVsPEVN33HbTr0nYmDbY9rWy3NssmuOg5+SUiSRfci0LgqdTtdTOcen9KLk5peh/h\n58rdSJZbqCgadrDhOqA=",
     };
@@ -816,7 +956,15 @@ helper.secrets.mockSuite(testing.suiteName(), ['taskcluster', 'azure'], function
       created: taskcluster.fromNow('0 seconds'),
       expires: taskcluster.fromNow('90 seconds'),
       state: 'requested',
-      providerData: {},
+      providerData: {
+        region: 'us-west-2',
+        imageId: 'ami-082b5a644766e0e6f',
+        instanceType: 't2.micro',
+        architecture: 'x86_64',
+        availabilityZone: 'us-west-2a',
+        privateIp: '172.31.23.159',
+        owner: '710952102342',
+      },
     };
 
     test('no such workerPool)', async function() {
@@ -884,29 +1032,6 @@ helper.secrets.mockSuite(testing.suiteName(), ['taskcluster', 'azure'], function
       }), /uhoh/);
     });
 
-    test('sweet success', async function() {
-      await helper.WorkerPool.create({
-        ...defaultWorkerPool,
-      });
-      await helper.Worker.create({
-        ...defaultWorker,
-      });
-      const res = await helper.workerManager.registerWorker({
-        ...defaultRegisterWorker,
-      });
-
-      assert.equal(res.credentials.clientId,
-        `worker/${providerId}/${workerPoolId}/${workerGroup}/${workerId}`);
-
-      // cheat a little and look in the certificate to check the scopes
-      const scopes = new Set(JSON.parse(res.credentials.certificate).scopes);
-      const msg = `got scopes ${[...scopes].join(', ')}`;
-      assert(scopes.has(`assume:worker-pool:${workerPoolId}`), msg);
-      assert(scopes.has(`assume:worker-id:${workerGroup}/${workerId}`), msg);
-      assert(scopes.has(`secrets:get:worker-pool:${workerPoolId}`), msg);
-      assert(scopes.has(`queue:claim-work:${workerPoolId}`), msg);
-    });
-
     test('sweet success for a previous providerId', async function() {
       await helper.WorkerPool.create({
         ...defaultWorkerPool,
@@ -924,39 +1049,18 @@ helper.secrets.mockSuite(testing.suiteName(), ['taskcluster', 'azure'], function
         `worker/${providerId}/${workerPoolId}/${workerGroup}/${workerId}`);
     });
 
-    test.only('AWS instance identity verification', async function() {
-      await helper.WorkerPool.create({
-        ...defaultWorkerPool,
-        providerId: 'aws',
-      });
-      await helper.Worker.create({
-        ...defaultWorker,
-        workerId: 'i-02312cd4f06c990ca',
-        providerId: 'aws',
-        providerData: {
-          region: 'us-west-2',
-          imageId: 'ami-082b5a644766e0e6f',
-          instanceType: 't2.micro',
-          architecture: 'x86_64',
-          availabilityZone: 'us-west-2a',
-          privateIp: '172.31.23.159',
-          owner: '710952102342',
-        },
-      });
+    test('Successful AWS instance identity verification and registering', async function() {
+      await helper.WorkerPool.create(defaultWorkerPool);
+      await helper.Worker.create(defaultWorker);
 
-      const res = await helper.workerManager.registerWorker({
-        ...defaultRegisterWorker,
-        workerId: 'i-02312cd4f06c990ca',
-        providerId: 'aws',
-        workerIdentityProof: aws_workerIdentityProof,
-      });
+      const res = await helper.workerManager.registerWorker(defaultRegisterWorker);
 
-      assert.equal(res.credentials.clientId, `worker/aws/${workerPoolId}/${workerGroup}/i-02312cd4f06c990ca`);
+      assert.equal(res.credentials.clientId, `worker/${providerId}/${workerPoolId}/${workerGroup}/${workerId}`);
 
       const scopes = new Set(JSON.parse(res.credentials.certificate).scopes);
       const msg = `got scopes ${[...scopes].join(', ')}`;
       assert(scopes.has(`assume:worker-pool:${workerPoolId}`), msg);
-      assert(scopes.has(`assume:worker-id:${workerGroup}/i-02312cd4f06c990ca`), msg);
+      assert(scopes.has(`assume:worker-id:${workerGroup}/${workerId}`), msg);
       assert(scopes.has(`secrets:get:worker-pool:${workerPoolId}`), msg);
       assert(scopes.has(`queue:claim-work:${workerPoolId}`), msg);
     });
