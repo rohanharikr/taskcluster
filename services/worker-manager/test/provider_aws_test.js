@@ -121,13 +121,13 @@ helper.secrets.mockSuite(testing.suiteName(), ['azure'], function(mock, skipping
 
     sinon.stub(aws, 'EC2').returns({
       ...fakeAWS.EC2,
-      runInstances: fakeAWS.EC2.runInstances({defaultLaunchConfig, TagSpecifications, UserData}),
+      runInstances: fakeAWS.EC2.runInstances(),
     });
 
     await provider.setup();
   });
 
-  suite('AWS provider - provision', function() {
+  suite.only('AWS provider - provision', function() {
 
     test('positive test', async function() {
       await provider.provision({workerPool});
@@ -145,6 +145,33 @@ helper.secrets.mockSuite(testing.suiteName(), ['azure'], function(mock, skipping
     });
 
     test('instance tags in launch spec - should merge them with our instance tags', async function() {
+      await workerPool.modify(wp => {
+        wp.config.launchConfigs[0].launchConfig.TagSpecifications = [{
+          ResourceType: 'instance',
+          Tags: [{Key: 'mytag', Value: 'testy'}],
+        }];
+      });
+
+      await provider.provision({workerPool});
+      const workers = await helper.Worker.scan({}, {});
+
+      assert.notStrictEqual(workers.entries.length, 0);
+      assert.deepStrictEqual(
+        aws.EC2().runInstances.calls.map(({launchConfig: {TagSpecifications}}) => TagSpecifications).sort(), [
+          [
+            {
+              ResourceType: 'instance',
+              Tags: [
+                {Key: 'mytag', Value: 'testy'},
+                {Key: 'CreatedBy', Value: 'taskcluster-wm-aws'},
+                {Key: 'Owner', Value: 'whatever@example.com'},
+                {Key: 'ManagedBy', Value: 'taskcluster'},
+                {Key: 'Name', Value: 'foo/bar'},
+              ],
+            },
+          ],
+        ]);
+
       sinon.restore();
     });
 
@@ -167,7 +194,7 @@ helper.secrets.mockSuite(testing.suiteName(), ['azure'], function(mock, skipping
       };
 
       await assert.rejects(
-        () => provider.registerWorker({worker: workerInDB, workerPool, workerIdentityProof}),
+        () => provider.registerWorker({worker: workerInDB, defaultWorkerPool, workerIdentityProof}),
         new ApiError('Request must include both a document (string) and a signature')
       );
       sinon.restore();
@@ -180,7 +207,7 @@ helper.secrets.mockSuite(testing.suiteName(), ['azure'], function(mock, skipping
       };
 
       await assert.rejects(
-        () => provider.registerWorker({worker: workerInDB, workerPool, workerIdentityProof}),
+        () => provider.registerWorker({worker: workerInDB, defaultWorkerPool, workerIdentityProof}),
         new ApiError('Instance identity document validation error'),
         'Should fail to verify iid (the document has been edited)'
       );
@@ -193,7 +220,7 @@ helper.secrets.mockSuite(testing.suiteName(), ['azure'], function(mock, skipping
         "signature": fs.readFileSync(path.resolve(__dirname, 'fixtures/aws_iid_SIGNATURE_badKey')).toString(),
       };
 
-      await assert.rejects(() => provider.registerWorker({worker: workerInDB, workerPool, workerIdentityProof}),
+      await assert.rejects(() => provider.registerWorker({worker: workerInDB, defaultWorkerPool, workerIdentityProof}),
         new ApiError('Instance identity document validation error'),
         'Should fail to verify iid (the signature was produced with a wrong key)'
       );
@@ -206,7 +233,7 @@ helper.secrets.mockSuite(testing.suiteName(), ['azure'], function(mock, skipping
         "signature": fs.readFileSync(path.resolve(__dirname, 'fixtures/aws_iid_SIGNATURE_badSignature')).toString(),
       };
 
-      await assert.rejects(() => provider.registerWorker({worker: workerInDB, workerPool, workerIdentityProof}),
+      await assert.rejects(() => provider.registerWorker({worker: workerInDB, defaultWorkerPool, workerIdentityProof}),
         new ApiError('Instance identity document validation error'),
         'Should fail to verify iid (the signature is wrong)'
       );
@@ -234,7 +261,7 @@ helper.secrets.mockSuite(testing.suiteName(), ['azure'], function(mock, skipping
       };
 
       await assert.rejects(
-        () => provider.registerWorker({worker: differentWorkerInDB, workerPool, workerIdentityProof}),
+        () => provider.registerWorker({worker: differentWorkerInDB, defaultWorkerPool, workerIdentityProof}),
         new ApiError('Instance validation error'),
         'Should fail to verify worker (info from the signature and info from our DB differ)'
       );
@@ -247,7 +274,7 @@ helper.secrets.mockSuite(testing.suiteName(), ['azure'], function(mock, skipping
         "signature": fs.readFileSync(path.resolve(__dirname, 'fixtures/aws_iid_EMPTYFILE')).toString(),
       };
 
-      await assert.rejects(() => provider.registerWorker({worker: workerInDB, workerPool, workerIdentityProof}),
+      await assert.rejects(() => provider.registerWorker({worker: workerInDB, defaultWorkerPool, workerIdentityProof}),
         new ApiError('Request must include both a document (string) and a signature')
       );
       sinon.restore();
@@ -265,7 +292,7 @@ helper.secrets.mockSuite(testing.suiteName(), ['azure'], function(mock, skipping
       };
 
       await assert.rejects(
-        () => provider.registerWorker({worker: runningWorker, workerPool, workerIdentityProof}),
+        () => provider.registerWorker({worker: runningWorker, defaultWorkerPool, workerIdentityProof}),
         new ApiError('This worker is either stopped or running. No need to register'),
         'Should fail because the worker is already running'
       );
