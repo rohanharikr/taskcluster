@@ -303,6 +303,14 @@ const createTheme = isDarkTheme => {
           backgroundColor: THEME.SECONDARY,
         },
       },
+      MuiPickersToolbarText: {
+        toolbarTxt: {
+          color: THEME.PRIMARY_TEXT_DARK,
+        },
+        toolbarBtnSelected: {
+          color: THEME.PRIMARY_TEXT_DARK,
+        },
+      },
       MuiPickersToolbarButton: {
         toolbarBtn: {
           '&:hover, &:focus': {
@@ -323,10 +331,14 @@ const createTheme = isDarkTheme => {
       MuiPickersYear: {
         root: {
           '&:focus': {
-            color: isDarkTheme ? 'white' : '#000',
+            color: isDarkTheme
+              ? THEME.PRIMARY_TEXT_DARK
+              : THEME.PRIMARY_TEXT_LIGHT,
           },
-          '&$selected': {
-            color: isDarkTheme ? 'white' : '#000',
+          '&$yearSelected': {
+            color: isDarkTheme
+              ? THEME.PRIMARY_TEXT_DARK
+              : THEME.PRIMARY_TEXT_LIGHT,
           },
         },
       },
@@ -352,20 +364,47 @@ const createTheme = isDarkTheme => {
         },
       },
       MuiPickersDay: {
-        isSelected: {
+        daySelected: {
           backgroundColor: THEME.SECONDARY,
+          color: THEME.PRIMARY_TEXT_DARK,
+          '&:hover': {
+            backgroundColor: THEME.SECONDARY,
+          },
         },
         current: {
-          color: isDarkTheme ? 'white' : '#000',
+          color: isDarkTheme
+            ? THEME.PRIMARY_TEXT_DARK
+            : THEME.PRIMARY_TEXT_LIGHT,
+        },
+        day: {
+          color: isDarkTheme
+            ? 'rgba(255, 255, 255, 0.7)'
+            : 'rgba(0, 0, 0, 0.7)',
         },
       },
       MuiPickersModal: {
         dialogAction: {
-          color: isDarkTheme ? 'white' : '#000',
+          color: isDarkTheme
+            ? THEME.PRIMARY_TEXT_DARK
+            : THEME.PRIMARY_TEXT_LIGHT,
           '&:hover': {
             backgroundColor: isDarkTheme
               ? THEME.TEN_PERCENT_WHITE
               : THEME.TEN_PERCENT_BLACK,
+          },
+        },
+      },
+      MuiDialogActions: {
+        root: {
+          '& button': {
+            color: isDarkTheme
+              ? THEME.PRIMARY_TEXT_DARK
+              : THEME.PRIMARY_TEXT_LIGHT,
+            '&:hover': {
+              backgroundColor: isDarkTheme
+                ? THEME.TEN_PERCENT_WHITE
+                : THEME.TEN_PERCENT_BLACK,
+            },
           },
         },
       },
