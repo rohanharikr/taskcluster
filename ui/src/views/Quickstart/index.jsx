@@ -1,3 +1,5 @@
+/* eslint-disable */
+
 import { hot } from 'react-hot-loader';
 import React, { Component, Fragment } from 'react';
 import { withApollo } from 'react-apollo';
@@ -27,68 +29,87 @@ import urls from '../../utils/urls';
 import ErrorPanel from '../../components/ErrorPanel';
 import githubQuery from './github.graphql';
 
-const taskDefinition = {
+// no-template-curly-in-string
+const initialTask = {
+  provisionerId: 'proj-misc',
+  workerType: 'ci',
+  deadline: "{$fromNow:·'3·hours'}",
+  metadata: {
+    name: '',
+    description: '',
+    owner: '${event.sender.login}@users.noreply.github.com',
+    source: '${repository}',
+  },
+  payload: {
+    maxRunTime: 3600,
+    image: 'node',
+    command: [],
+  },
+};
+
+const initialYaml = {
   version: 1,
   policy: {
     pullRequests: 'collaborators',
   },
   tasks: {
-    $match: {
-      taskId: { $eval: 'as_slugid("pr_task")' },
-      provisionerId: 'proj-getting-started',
-      workerType: 'tutorial',
-      payload: {
-        maxRunTime: 3600,
-        image: 'node',
-        command: [],
+    $let: {
+      head_rev: {
+        $if: 'tasks_for == "github-pull-request"',
+        then: '${event.pull_request.head.sha}',
+        else: '${event.after}',
       },
-      metadata: {
-        name: '',
-        description: '',
-        owner: '${event.sender.login}@users.noreply.github.com', // eslint-disable-line no-template-curly-in-string
-        source: '${event.repository.url}', // eslint-disable-line no-template-curly-in-string
+      clone_url: {
+        $if: 'tasks_for == "github-pull-request"',
+        then: '${event.pull_request.head.repo.git_url}',
+        else: '${event.repository.url}',
       },
+      repository: {
+        $if: 'tasks_for == "github-pull-request"',
+        then: '${event.pull_request.head.repo.html_url}',
+        else: '${event.repository.html_url}',
+      },
+    },
+    in: {
+      $if: 'tasks_for in ["github-pull-request", "github-push"]',
+      then: [
+        initialTask,
+      ],
     },
   },
 };
+
 const baseCmd = [
-  'git clone {{event.head.repo.url}} repo',
+  'git clone ${clone_url} repo',
   'cd repo',
   'git config advice.detachedHead false',
-  'git checkout {{event.head.sha}}',
+  'git checkout {$head_rev}',
 ];
-const getMatchCondition = events => {
-  let condition = '';
-  const eventsJoin = Array.from(events).join(' ');
 
-  if (eventsJoin.includes('pull_request')) {
-    condition = `${condition}(tasks_for == "github-pull-request" && event["action"] in [${[
-      ...events,
-    ].sort()}])`;
-  }
+const  initialEvents = new Set([
+    'pull_request.opened',
+    'pull_request.reopened',
+    'pull_request.synchronize',
+  ]);
 
-  if (eventsJoin.includes('push')) {
-    if (condition.length > 0) {
-      condition = `${condition} || `;
-    }
+const  initialState = {
+    owner: '',
+    repo: '',
+    installedState: null,
 
-    condition = `${condition}(tasks_for == "github-push")`;
-  }
+    taskName: '',
+    taskDescription: '',
+    events: this.initialEvents,
+    policy: 'collaborators',
+    image: 'node',
+    commands: '/bin/bash',
+    commandSelection: 'standard',
+  };
 
-  if (eventsJoin.includes('release')) {
-    if (condition.length > 0) {
-      condition = `${condition} || `;
-    }
-
-    condition = `${condition}(tasks_for == "github-release")`;
-  }
-
-  return condition;
-};
 
 const getTaskDefinition = state => {
   const {
-    access,
+    policy,
     commands,
     condition,
     image,
@@ -97,22 +118,22 @@ const getTaskDefinition = state => {
   } = state;
 
   return safeDump({
-    ...taskDefinition,
+    ...initialYaml,
     policy: {
-      pullRequests: access,
+      pullRequests: policy,
     },
     tasks: {
       $match: {
         [condition]: {
-          ...taskDefinition.tasks.$match,
+          ...initialYaml.tasks.$match,
           ...{
             metadata: {
-              ...taskDefinition.tasks.$match.metadata,
+              ...initialYaml.tasks.$match.metadata,
               name: taskName,
               description: taskDescription,
             },
             payload: {
-              ...taskDefinition.tasks.$match.payload,
+              ...initialYaml.tasks.$match.payload,
               image,
               command: commands,
             },
@@ -215,26 +236,6 @@ const cmdDirectory = (type, org = '<YOUR_ORG>', repo = '<YOUR_REPO>') =>
   },
 }))
 export default class QuickStart extends Component {
-  initialEvents = new Set([
-    'pull_request.opened',
-    'pull_request.reopened',
-    'pull_request.synchronize',
-  ]);
-
-  initialState = {
-    events: this.initialEvents,
-    condition: getMatchCondition(this.initialEvents),
-    owner: '',
-    repo: '',
-    access: 'collaborators',
-    image: 'node',
-    commands: cmdDirectory('node'),
-    commandSelection: 'standard',
-    installedState: null,
-    taskName: '',
-    taskDescription: '',
-  };
-
   state = this.initialState;
 
   getInstalledState = debounce(async (owner, repo) => {
@@ -312,13 +313,37 @@ export default class QuickStart extends Component {
   };
 
   renderEditor() {
-    const newYaml = getTaskDefinition(this.state);
+    const newYaml = this.state.editorValue || safeDump({
+      ...initialYaml,
+      policy: {
+        pullRequests: this.state.policy,
+      },
+      tasks: {
+        in: {
+          $if: `tasks_for in [${this.state.events.join(", ")}]`,
+
+          then: [{
+            ...initialTask,
+            metadata: {
+              ...initialTask.metadata,
+              name: this.state.taskName,
+              description: this.state.taskDescription,
+            },
+            payload: {
+              ...initialTask.payload,
+              image: this.state.image,
+              command: this.state.commands,
+            },
+          }],
+        },
+      },
+    });
 
     return (
       <CodeEditor
         onChange={this.handleEditorChange}
         mode="yaml"
-        value={this.state.editorValue || newYaml}
+        value={newYaml}
       />
     );
   }
@@ -334,7 +359,7 @@ export default class QuickStart extends Component {
       image,
       installedState,
       commandSelection,
-      access,
+      policy,
     } = this.state;
 
     return (
@@ -446,6 +471,7 @@ export default class QuickStart extends Component {
           <Typography className={classes.mainHeading} variant="h6">
             Create Your Task Definition
           </Typography>
+
           <List>
             <ListItem>
               <TextField
@@ -467,6 +493,7 @@ export default class QuickStart extends Component {
                 value={taskDescription}
               />
             </ListItem>
+
             <ListItem>
               <FormControl component="fieldset">
                 <FormLabel component="legend">
@@ -478,7 +505,7 @@ export default class QuickStart extends Component {
                       control={
                         <Checkbox
                           checked={events.has('pull_request.opened')}
-                          onChange={this.handleEventsSelection}
+                          onChange={this.handleEventsSelection} // todo review events selection
                           value="pull_request.opened"
                         />
                       }
@@ -541,20 +568,22 @@ export default class QuickStart extends Component {
                 </div>
               </FormControl>
             </ListItem>
+
             <ListItem>
               <TextField
-                id="select-access"
+                id="select-policy"
                 select
                 label="Access"
                 helperText="Who can trigger tasks from PRs?"
-                value={access}
-                name="access"
+                value={policy}
+                name="policy"
                 onChange={this.handleInputChange}
                 margin="normal">
                 <MenuItem value="public">Public</MenuItem>
                 <MenuItem value="collaborators">Collaborators</MenuItem>
               </TextField>
             </ListItem>
+
             <ListItem>
               <TextField
                 id="select-language"
@@ -571,6 +600,7 @@ export default class QuickStart extends Component {
                 <MenuItem value="go">Go</MenuItem>
               </TextField>
             </ListItem>
+
             <ListItem>
               <TextField
                 id="select-commands"
@@ -579,12 +609,11 @@ export default class QuickStart extends Component {
                 value={commandSelection}
                 onChange={this.handleCommandsChange}
                 margin="normal">
-                <MenuItem value="standard">
-                  Clone repo and run my tests
-                </MenuItem>
+                <MenuItem value="standard">Clone repo and run my tests</MenuItem>
                 <MenuItem value="custom">I will define them myself</MenuItem>
               </TextField>
             </ListItem>
+
             <ListItem>
               <ListItemText
                 disableTypography
@@ -593,18 +622,22 @@ export default class QuickStart extends Component {
                 }
               />
             </ListItem>
+
             <ListItem className={classes.editorListItem}>
               {this.renderEditor()}
             </ListItem>
+
           </List>
-          <Button
-            spanProps={{ className: classes.resetButtonSpan }}
-            tooltipProps={{ title: 'Reset Form & File' }}
-            variant="round"
-            onClick={this.handleReset}
-            color="secondary">
-            <RestartIcon />
-          </Button>
+
+          {/*<Button*/}
+            {/*spanProps={{ className: classes.resetButtonSpan }}*/}
+            {/*tooltipProps={{ title: 'Reset Form & File' }}*/}
+            {/*variant="round"*/}
+            {/*onClick={this.handleReset}*/}
+            {/*color="secondary">*/}
+            {/*<RestartIcon />*/}
+          {/*</Button>*/}
+
         </Fragment>
       </Dashboard>
     );
