@@ -57,7 +57,11 @@ const initialYaml = {
       head_rev: {
         $if: 'tasks_for == "github-pull-request"',
         then: '${event.pull_request.head.sha}',
-        else: '${event.after}',
+        else: {
+          $if: 'tasks_for == "github-push"',
+          then: '${event.after}',
+          else: '${event.release.tag_name}',
+        },
       },
       clone_url: {
         $if: 'tasks_for == "github-pull-request"',
@@ -69,9 +73,14 @@ const initialYaml = {
         then: '${event.pull_request.head.repo.html_url}',
         else: '${event.repository.html_url}',
       },
+      action: {
+        $if: 'tasks_for == "github-pull-request"',
+        then: '${event.action}',
+        else: '${tasks_for}'
+      },
     },
     in: {
-      $if: 'tasks_for in ["github-pull-request", "github-push"]',
+      $if: 'action in []',
       then: [
         initialTask,
       ],
