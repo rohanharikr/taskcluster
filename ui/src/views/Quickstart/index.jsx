@@ -30,6 +30,7 @@ import ErrorPanel from '../../components/ErrorPanel';
 import githubQuery from './github.graphql';
 
 // no-template-curly-in-string
+// todo check owner in the task
 const initialTask = {
   provisionerId: 'proj-misc',
   workerType: 'ci',
@@ -80,7 +81,7 @@ const initialYaml = {
       },
     },
     in: {
-      $if: 'action in []',
+      $if: '',
       then: [
         initialTask,
       ],
@@ -92,38 +93,38 @@ const baseCmd = [
   'git clone ${clone_url} repo',
   'cd repo',
   'git config advice.detachedHead false',
-  'git checkout {$head_rev}',
+  'git checkout ${head_rev}',
 ];
 
 const  initialEvents = new Set([
-    'pull_request.opened',
-    'pull_request.reopened',
-    'pull_request.synchronize',
-  ]);
+  'opened',
+  'reopened',
+  'synchronize',
+]);
 
-const  initialState = {
-    owner: '',
-    repo: '',
-    installedState: null,
+const  initialState = { // todo get initial state right, and overall state, and the reset button
+  owner: '',
+  repo: '',
+  installedState: null,
 
-    taskName: '',
-    taskDescription: '',
-    events: this.initialEvents,
-    policy: 'collaborators',
-    image: 'node',
-    commands: '/bin/bash',
-    commandSelection: 'standard',
-  };
+  taskName: '',
+  taskDescription: '',
+  events: this.initialEvents,
+  policy: 'collaborators',
+  image: 'node',
+  commands: '/bin/bash',
+  commandSelection: 'standard',
+};
 
 
 const getTaskDefinition = state => {
   const {
     policy,
     commands,
-    condition,
     image,
     taskName,
     taskDescription,
+    events,
   } = state;
 
   return safeDump({
@@ -132,27 +133,29 @@ const getTaskDefinition = state => {
       pullRequests: policy,
     },
     tasks: {
-      $match: {
-        [condition]: {
-          ...initialYaml.tasks.$match,
-          ...{
-            metadata: {
-              ...initialYaml.tasks.$match.metadata,
-              name: taskName,
-              description: taskDescription,
-            },
-            payload: {
-              ...initialYaml.tasks.$match.payload,
-              image,
-              command: commands,
-            },
+      ...initialYaml.tasks,
+      in: {
+        ...initialYaml.tasks.in,
+        $if: `action in [${[...events].join('", "')}]`,
+        then: [{
+          ...initialTask,
+          metadata: {
+            ...initialTask.metadata,
+            name: taskName,
+            description: taskDescription,
           },
-        },
+          payload: {
+            ...initialTask.payload,
+            image,
+            command: commands,
+          },
+        }]
       },
     },
   });
 };
 
+// todo check commands
 const cmdDirectory = (type, org = '<YOUR_ORG>', repo = '<YOUR_REPO>') =>
   ({
     node: [
@@ -280,13 +283,8 @@ export default class QuickStart extends Component {
 
     events.has(value) ? events.delete(value) : events.add(value);
 
-    // Note: this should be called after `events` has been modified
-    // in the above line
-    const condition = getMatchCondition(events);
-
     this.setState({
       events,
-      condition,
       editorValue: null,
     });
   };
@@ -312,7 +310,6 @@ export default class QuickStart extends Component {
   handleReset = () => {
     const resetState = {
       ...this.initialState,
-      condition: getMatchCondition(this.initialState.events),
     };
 
     this.setState({
@@ -513,9 +510,9 @@ export default class QuickStart extends Component {
                     <FormControlLabel
                       control={
                         <Checkbox
-                          checked={events.has('pull_request.opened')}
+                          checked={events.has('opened')}
                           onChange={this.handleEventsSelection} // todo review events selection
-                          value="pull_request.opened"
+                          value="opened"
                         />
                       }
                       label="Pull request opened"
@@ -523,9 +520,9 @@ export default class QuickStart extends Component {
                     <FormControlLabel
                       control={
                         <Checkbox
-                          checked={events.has('pull_request.closed')}
+                          checked={events.has('closed')}
                           onChange={this.handleEventsSelection}
-                          value="pull_request.closed"
+                          value="closed"
                         />
                       }
                       label="Pull request merged or closed"
@@ -533,9 +530,9 @@ export default class QuickStart extends Component {
                     <FormControlLabel
                       control={
                         <Checkbox
-                          checked={events.has('pull_request.reopened')}
+                          checked={events.has('reopened')}
                           onChange={this.handleEventsSelection}
-                          value="pull_request.reopened"
+                          value="reopened"
                         />
                       }
                       label="Pull request re-opened"
@@ -545,9 +542,9 @@ export default class QuickStart extends Component {
                     <FormControlLabel
                       control={
                         <Checkbox
-                          checked={events.has('pull_request.synchronize')}
+                          checked={events.has('synchronize')}
                           onChange={this.handleEventsSelection}
-                          value="pull_request.synchronize"
+                          value="synchronize"
                         />
                       }
                       label="New commit made in an opened pull request"
@@ -555,9 +552,9 @@ export default class QuickStart extends Component {
                     <FormControlLabel
                       control={
                         <Checkbox
-                          checked={events.has('push')}
+                          checked={events.has('github-push')}
                           onChange={this.handleEventsSelection}
-                          value="push"
+                          value="github-push"
                         />
                       }
                       label="Push"
@@ -566,9 +563,9 @@ export default class QuickStart extends Component {
                     <FormControlLabel
                       control={
                         <Checkbox
-                          checked={events.has('release')}
+                          checked={events.has('github-release')}
                           onChange={this.handleEventsSelection}
-                          value="release"
+                          value="github-release"
                         />
                       }
                       label="Release or tag created"
