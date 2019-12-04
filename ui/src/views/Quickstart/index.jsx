@@ -248,7 +248,12 @@ const cmdDirectory = (type, org = '<YOUR_ORG>', repo = '<YOUR_REPO>') =>
   },
 }))
 export default class QuickStart extends Component {
-  state = this.initialState;
+  state = {
+    ...initialState,
+    owner: '',
+    repo: '',
+    installedState: null,
+  };
 
   getInstalledState = debounce(async (owner, repo) => {
     const { data } = await this.props.client.query({
